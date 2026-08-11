@@ -1,0 +1,47 @@
+name: Bug 报告
+description: 报告可复现的问题；安全漏洞请使用私密报告渠道
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: 请先移除截图、日志和数据库中的姓名、错题照片、API Key 等敏感信息。
+  - type: textarea
+    id: description
+    attributes:
+      label: 问题描述
+      description: 实际发生了什么？预期结果是什么？
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      placeholder: |
+        1. 启动……
+        2. 打开……
+        3. 点击……
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: 版本或提交
+      placeholder: v0.1.0 或 commit SHA
+  - type: input
+    id: environment
+    attributes:
+      label: 运行环境
+      placeholder: macOS 版本、Python 版本、浏览器
+  - type: textarea
+    id: logs
+    attributes:
+      label: 已脱敏的日志
+      render: shell
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: 隐私确认
+      options:
+        - label: 我已确认提交内容不含 API Key、真实学生信息或受限错题照片。
+          required: true

@@ -1,0 +1,50 @@
+[project]
+name = "cuoti-auto"
+version = "0.1.0"
+description = "本地优先的考研错题识别、复核、归档、检索与 PDF 导出工作流"
+readme = "README.md"
+requires-python = ">=3.11,<3.14"
+license = "MIT"
+keywords = ["ocr", "education", "sqlite", "fastapi", "wrong-questions"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Education",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Education",
+]
+dependencies = [
+  "fastapi>=0.116,<1",
+  "jinja2>=3.1,<4",
+  "markdown>=3.8,<4",
+  "openai>=1.99,<3",
+  "pillow>=11,<13",
+  "pydantic>=2.11,<3",
+  "python-multipart>=0.0.20,<1",
+  "uvicorn>=0.35,<1",
+  "weasyprint>=66,<70",
+]
+
+[project.optional-dependencies]
+dev = ["httpx>=0.28,<1", "pytest>=8.4,<10"]
+
+[project.scripts]
+cuoti = "cuoti.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cuoti"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[project.urls]
+Homepage = "https://github.com/Nemoyuzx/cuoti-auto"
+Documentation = "https://github.com/Nemoyuzx/cuoti-auto#readme"
+Issues = "https://github.com/Nemoyuzx/cuoti-auto/issues"

@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}{{ question.subject }} #{{ question.id }} · {{ question.created_at[:10] }} · 错题_auto{% endblock %}
+{% block content %}
+<div class="detail-head">
+  <a href="/subject/{{ subject_slugs[question.subject] }}">← 返回{{ question.subject }}错题库</a>
+  <span>{{ question.subject }} #{{ question.id }} · {{ question.created_at[:10] }} · {{ question.status }}</span>
+</div>
+
+<section class="detail-page">
+  <article class="detail-primary">
+    <div class="card-meta detail-meta">
+      <span class="subject">{{ question.subject }}</span>
+      <span>{{ question.chapter }}</span>
+      <span>{{ question.section }}</span>
+      <span>{{ question.question_type }}</span>
+      <span>难度 {{ question.difficulty }}/5</span>
+      <span class="confidence-chip {{ 'low' if question.confidence < 0.75 else ('medium' if question.confidence < 0.9 else 'high') }}">置信度 {{ (question.confidence * 100) | round | int }}%</span>
+    </div>
+
+    <section class="detail-question-block">
+      <div class="detail-section-label">错题内容</div>
+      <div class="question-large rich-text math-content">{{ question.question_text | richtext }}</div>
+      {% if question.options %}
+      <div class="options detail-options math-content">
+        {% for option in question.options %}<span>{{ option | richtext }}</span>{% endfor %}
+      </div>
+      {% endif %}
+    </section>
+
+    <section class="detail-content-block wrong">
+      <div class="detail-section-label">我的错误答案</div>
+      <div class="rich-text math-content">{{ (question.wrong_answer or '待补充') | richtext }}</div>
+    </section>
+    <section class="detail-content-block correct">
+      <div class="detail-section-label">正确答案</div>
+      <div class="rich-text math-content">{{ (question.correct_answer or '待补充') | richtext }}</div>
+    </section>
+    <section class="detail-content-block detail-analysis">
+      <div class="detail-section-label">解析</div>
+      <div class="rich-text math-content">{{ (question.analysis or '待补充') | richtext }}</div>
+    </section>
+    <section class="detail-content-block">
+      <div class="detail-section-label">错因与知识点</div>
+      <div class="rich-text math-content">{{ (question.error_reason or '待补充') | richtext }}</div>
+      <div class="knowledge-tags">
+        {% for point in question.knowledge_points %}<span>{{ point }}</span>{% else %}<span>待补充</span>{% endfor %}
+      </div>
+    </section>
+  </article>
+
+  <details class="detail-maintenance">
+    <summary>展开原题图片与编辑区域</summary>
+    <div class="detail-maintenance-body">
+      <section class="detail-images">
+        <div class="detail-subheading"><strong>原题图片</strong><span>仅在需要对照时查看</span></div>
+        {% if question.image_paths %}
+          {% for image in question.image_paths %}<img src="/media/{{ question.subject }}/{{ image }}" alt="原题图片 {{ loop.index }}">{% endfor %}
+        {% else %}
+          <div class="image-empty">这道题没有关联原图</div>
+        {% endif %}
+      </section>
+
+      <form class="edit-form" method="post">
+        <div class="detail-subheading"><strong>编辑题目</strong><span>保存后同步 SQLite 和 Markdown</span></div>
+        <div class="two-cols">
+          <label>章节<input name="chapter" value="{{ question.chapter }}" required></label>
+          <label>板块<input name="section" value="{{ question.section }}" required></label>
+          <label>题型<input name="question_type" value="{{ question.question_type }}"></label>
+          <label>状态<select name="status"><option {% if question.status == '待复核' %}selected{% endif %}>待复核</option><option {% if question.status == '已复核' %}selected{% endif %}>已复核</option></select></label>
+          <label>置信度<input type="number" min="0" max="1" step="0.01" name="confidence" value="{{ '%.2f' | format(question.confidence) }}"></label>
+        </div>
+        <div class="editor-field">
+          <label for="detail-question-text">题目（公式使用 $...$ 或 $$...$$）</label>
+          <textarea id="detail-question-text" name="question_text" rows="8" required data-preview-source="question-preview">{{ question.question_text }}</textarea>
+          <section class="live-preview" aria-label="题干实际效果">
+            <div class="live-preview-title">实际效果</div>
+            <div class="live-preview-content rich-text math-content" data-preview-output="question-preview">{{ question.question_text | richtext }}</div>
+          </section>
+        </div>
+        <div class="editor-field">
+          <label for="detail-options">选项（每行一个）</label>
+          <textarea id="detail-options" name="options" rows="4" data-preview-source="options-preview" data-preview-kind="options">{{ question.options | join('\n') }}</textarea>
+          <section class="live-preview" aria-label="选项实际效果">
+            <div class="live-preview-title">实际效果</div>
+            <div class="live-preview-content options math-content" data-preview-output="options-preview">
+              {% for option in question.options %}<span>{{ option | richtext }}</span>{% endfor %}
+            </div>
+          </section>
+        </div>
+        <label>我的错误答案<textarea name="wrong_answer" rows="3">{{ question.wrong_answer }}</textarea></label>
+        <label>正确答案<textarea name="correct_answer" rows="3">{{ question.correct_answer }}</textarea></label>
+        <div class="editor-field">
+          <label for="detail-analysis">解析（代码使用 Markdown 三反引号围栏）</label>
+          <textarea id="detail-analysis" name="analysis" rows="12" data-preview-source="analysis-preview">{{ question.analysis }}</textarea>
+          <section class="live-preview" aria-label="解析实际效果">
+            <div class="live-preview-title">实际效果</div>
+            <div class="live-preview-content rich-text math-content" data-preview-output="analysis-preview">{{ question.analysis | richtext }}</div>
+          </section>
+        </div>
+        <label>错因<textarea name="error_reason" rows="3">{{ question.error_reason }}</textarea></label>
+        <label>知识点（逗号分隔）<input name="knowledge_points" value="{{ question.knowledge_points | join(', ') }}"></label>
+        {% if question.image_paths %}
+        <fieldset class="practice-images">
+          <legend>纯题 PDF 图片（仅勾选不含答案、批注的题目插图）</legend>
+          {% for image in question.image_paths %}
+          <label><input type="checkbox" name="practice_images" value="{{ image }}" {% if image in question.practice_image_paths %}checked{% endif %}>{{ image }}</label>
+          {% endfor %}
+        </fieldset>
+        {% endif %}
+        <label>难度（1-5）<input type="number" min="1" max="5" name="difficulty" value="{{ question.difficulty }}"></label>
+        <button class="button primary sticky-save" type="submit">保存并同步 Markdown</button>
+      </form>
+    </div>
+  </details>
+</section>
+{% endblock %}

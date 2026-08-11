@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "description": "KaTeX is vendored as an npm dependency for offline formula rendering.",
+  "dependencies": {
+    "katex": "^0.16.22"
+  }
+}

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="{{ katex_css_uri }}">
+  <style>
+    @page { size: A4; margin: 8mm 8mm 9mm; @bottom-right { content: "第 " counter(page) " 页"; font-size: 7.5pt; color: #777; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; color: #151515; font-family: "Songti SC", "SimSun", serif; font-size: 9pt; line-height: 1.36; }
+    header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: .45mm solid #111; padding-bottom: 2mm; margin-bottom: 3mm; }
+    h1 { font: 700 15pt "Heiti SC", sans-serif; margin: 0; }
+    header span { color: #666; font-size: 7.5pt; }
+    .grid { column-count: 2; column-gap: 4mm; }
+    .card { break-inside: avoid; display: inline-block; width: 100%; border: .25mm solid #b8b8b8; border-left: 1mm solid #222; border-radius: 1.2mm; padding: 2.2mm 2.4mm; margin: 0 0 3mm; }
+    .solution-card { display: block; break-before: column; break-after: column; }
+    .meta { display: flex; flex-wrap: wrap; gap: 1.2mm; color: #555; font: 7pt "Heiti SC", sans-serif; margin-bottom: 1.4mm; }
+    .meta b { color: #111; }
+    .question { font-weight: 550; }
+    .options { display: flex; flex-wrap: wrap; gap: .7mm 3mm; margin-top: 1.2mm; }
+    .option { flex: 1 1 auto; min-width: 18%; }
+    .original { display: block; max-width: 100%; max-height: 42mm; object-fit: contain; margin: 1.5mm auto; }
+    .label { display: inline-block; min-width: 13mm; margin-right: 1mm; font: 700 7.5pt "Heiti SC", sans-serif; }
+    .row { border-top: .18mm solid #ddd; margin-top: 1.5mm; padding-top: 1.2mm; }
+    .wrong { color: #8d2525; } .correct { color: #17633a; }
+    .analysis { color: #333; }
+    .answer-space { height: 8mm; border-bottom: .2mm dotted #aaa; margin-top: 1.5mm; }
+    .katex { font-size: 1em; } .katex-display { margin: 1.2mm 0; overflow: hidden; }
+    .knowledge { color: #666; font-size: 7.2pt; margin-top: 1mm; }
+    pre { margin: 1.4mm 0; padding: 1.6mm; overflow-wrap: anywhere; white-space: pre-wrap; border: .18mm solid #d3d6d0; border-left: .8mm solid #67736b; border-radius: .8mm; background: #f2f4f1; color: #202521; font: 6.7pt/1.35 "SFMono-Regular", "Menlo", "Courier New", monospace; }
+    pre code { white-space: inherit; font: inherit; }
+  </style>
+</head>
+<body>
+  <header><h1>{{ '纯题重做版' if variant == 'practice' else '完整错题本版' }}</h1><span>{{ questions|length }} 题 · {{ generated_at }}</span></header>
+  <main class="grid">
+  {% for item in questions %}
+    <section class="card{% if item.is_solution %} solution-card{% endif %}">
+      <div class="meta"><b>{{ item.record.subject }} #{{ item.record.id }} · {{ item.record.created_at[:10] }}</b><span>{{ item.record.chapter }}</span><span>{{ item.record.section }}</span><span>难度 {{ item.record.difficulty }}/5</span></div>
+      <div class="question">{{ item.question | safe }}</div>
+      {% if item.options %}<div class="options">{% for option in item.options %}<span class="option">{{ option | safe }}</span>{% endfor %}</div>{% endif %}
+      {% for image in item.images %}<img class="original" src="{{ image }}" alt="原题图">{% endfor %}
+      {% if variant == 'practice' %}
+        <div class="answer-space"></div>
+      {% else %}
+        <div class="row wrong"><span class="label">错误答案</span>{{ item.wrong_answer | safe if item.wrong_answer else '待补充' }}</div>
+        <div class="row correct"><span class="label">正确答案</span>{{ item.correct_answer | safe if item.correct_answer else '待补充' }}</div>
+        <div class="row analysis"><span class="label">解析</span>{{ item.analysis | safe if item.analysis else '待补充' }}</div>
+        <div class="row"><span class="label">错因</span>{{ item.error_reason | safe if item.error_reason else '待补充' }}</div>
+        <div class="knowledge">知识点：{{ item.record.knowledge_points | join(' · ') if item.record.knowledge_points else '待补充' }}</div>
+      {% endif %}
+    </section>
+  {% endfor %}
+  </main>
+</body>
+</html>

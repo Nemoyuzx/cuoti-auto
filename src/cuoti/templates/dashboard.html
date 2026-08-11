@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}{{ active_subject }}错题库 · 错题_auto{% endblock %}
+{% block nav_tools %}
+<div class="export-menu" data-export-panel data-subject="{{ active_subject }}">
+  <button class="export-trigger" type="button" data-export-toggle aria-expanded="false" aria-controls="export-popover">
+    <span class="export-trigger-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"></circle><path d="M12 7v7m0 0 3-3m-3 3-3-3"></path></svg>
+      <span class="export-trigger-check">✓</span>
+    </span>
+    <span>PDF 导出</span>
+  </button>
+  <section class="export-popover" id="export-popover" data-export-popover hidden aria-label="PDF 导出任务">
+    <div class="export-panel-head">
+      <div><strong>PDF 导出</strong><span>后台生成，可继续浏览和复核</span></div>
+      <span class="export-idle">就绪</span>
+    </div>
+    <div class="export-buttons">
+      <button class="button primary" type="button" data-export-variant="practice">导出纯题版</button>
+      <button class="button" type="button" data-export-variant="notebook">导出错题本</button>
+    </div>
+    <p class="export-scope">导出范围：{{ active_subject }}当前筛选结果，共 {{ stats.visible }} 题。完整版不包含原始拍照页。</p>
+    <div class="export-jobs" data-export-jobs>
+      <div class="export-empty" data-export-empty>尚无导出任务。任务进度会在这里持续更新。</div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+{% block content %}
+{% if request.query_params.get('deleted') %}<div class="notice success">误收题目 #{{ request.query_params.get('deleted') }} 已删除，并保留了可恢复备份。</div>{% endif %}
+<nav class="subject-tabs" aria-label="科目页面">
+  {% for value in subjects %}
+  <a class="subject-tab subject-tab-{{ value }} {{ 'active' if active_subject == value else '' }}" href="/subject/{{ subject_slugs[value] }}">
+    <span>{{ value }}</span><b>{{ subject_counts[value] }}</b>
+  </a>
+  {% endfor %}
+</nav>
+
+<section class="summary-strip subject-summary">
+  <div class="subject-title"><strong>{{ active_subject }}</strong><span>独立错题页</span></div>
+  <div><strong>{{ stats.visible }}</strong><span>当前结果</span></div>
+  <div><strong>{{ stats.total }}</strong><span>本科全部</span></div>
+  <div><strong>{{ stats.review }}</strong><span>待复核</span></div>
+  <div><strong>{{ stats.low_confidence }}</strong><span>低置信度</span></div>
+  <div class="summary-actions">
+    {% if stats.low_confidence %}<a class="button review-button" href="{{ low_review_url }}">优先复核低置信度（{{ stats.low_confidence }}）</a>{% endif %}
+    {% if stats.review %}<a class="button ghost" href="{{ review_url }}">复核当前范围</a>{% endif %}
+  </div>
+</section>
+
+<form class="filters subject-filters" method="get" action="/subject/{{ subject_slug }}" data-filter-form>
+  <label>章节
+    <select name="chapter">
+      <option value="">全部章节</option>
+      {% for value in facets.chapters %}<option {% if filters.chapter == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>板块
+    <select name="section">
+      <option value="">全部板块</option>
+      {% for value in facets.sections %}<option {% if filters.section == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>状态
+    <select name="status">
+      <option value="">全部状态</option>
+      {% for value in facets.statuses %}<option {% if filters.status == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+    </select>
+  </label>
+  <label>置信度
+    <select name="confidence">
+      <option value="">全部置信度</option>
+      <option value="low" {% if filters.confidence == 'low' %}selected{% endif %}>低于 75%</option>
+      <option value="medium" {% if filters.confidence == 'medium' %}selected{% endif %}>75%–89%</option>
+      <option value="high" {% if filters.confidence == 'high' %}selected{% endif %}>90% 及以上</option>
+    </select>
+  </label>
+  <label class="search">搜索
+    <input name="q" value="{{ filters.q }}" placeholder="题干 / 解析 / 知识点">
+  </label>
+  <button class="button primary" type="submit">筛选</button>
+  <a class="button ghost" href="/subject/{{ subject_slug }}">清除</a>
+</form>
+
+<div class="library-content">
+    {% if questions %}
+    <section class="question-grid">
+      {% for item in questions %}
+      <article class="question-card subject-{{ item.subject }}">
+        <div class="card-meta">
+          <span class="subject">{{ item.subject }}</span>
+          <span>{{ item.chapter }}</span>
+          <span>{{ item.section }}</span>
+          <span class="confidence-chip {{ 'low' if item.confidence < 0.75 else ('medium' if item.confidence < 0.9 else 'high') }}">置信度 {{ (item.confidence * 100) | round | int }}%</span>
+          <span class="status {{ 'review' if item.status == '待复核' else '' }}">{{ item.status }}</span>
+        </div>
+        <a class="card-body" href="/question/{{ item.subject }}/{{ item.id }}">
+          <div class="question-text rich-text math-content">{{ item.question_text | richtext }}</div>
+          {% if item.options %}<div class="options math-content">{% for option in item.options %}<span>{{ option | richtext }}</span>{% endfor %}</div>{% endif %}
+          {% if item.correct_answer %}<div class="answer-line rich-text math-content"><b>答案</b> {{ item.correct_answer | richtext }}</div>{% endif %}
+        </a>
+        <footer>
+          <span>#{{ item.id }} · {{ item.created_at[:10] }} · 难度 {{ item.difficulty }}/5</span>
+          <span>{{ item.knowledge_points | join(' · ') }}</span>
+        </footer>
+      </article>
+      {% endfor %}
+    </section>
+    {% else %}
+    <section class="empty-state"><strong>{{ active_subject }}还没有匹配的错题</strong><span>可以清除筛选，或在下方导入图片。</span></section>
+    {% endif %}
+
+    <section class="import-panel" id="import">
+      <div>
+        <h2>导入纸质错题</h2>
+        <p>自动结果默认进入待复核，科目由识别结果自动分页。</p>
+      </div>
+      <form method="post" action="/import" enctype="multipart/form-data">
+        <input type="file" name="files" accept="image/*" multiple required>
+        <select name="provider">
+          <option value="tesseract">Tesseract（离线保底）</option>
+          <option value="openai">视觉模型（需 API Key）</option>
+          <option value="mineru">MinerU（需另装）</option>
+        </select>
+        <button class="button primary" type="submit">识别并入库</button>
+      </form>
+    </section>
+</div>
+{% endblock %}

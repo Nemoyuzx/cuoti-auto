@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}对比复核 · {{ question.subject }} #{{ question.id }} · {{ question.created_at[:10] }}{% endblock %}
+{% block content %}
+{% set taxonomy = taxonomy_choices | default(none) %}
+<section class="review-shell">
+  <header class="review-toolbar">
+    <div class="review-toolbar-main">
+      <a class="button ghost" href="/subject/{{ subject_slugs[question.subject] }}">← 返回{{ question.subject }}错题库</a>
+      {% if previous_question %}<a class="button" href="/review/{{ previous_question.subject }}/{{ previous_question.id }}{{ review_query }}">上一题</a>{% endif %}
+      {% if next_question %}<a class="button" href="/review/{{ next_question.subject }}/{{ next_question.id }}{{ review_query }}">下一题</a>{% endif %}
+    </div>
+    <div class="review-progress">
+      <strong>{{ question.subject }} #{{ question.id }} · {{ question.created_at[:10] }}</strong>
+      <span>{{ question.chapter }} / {{ question.section }}</span>
+      <span class="confidence-chip {{ 'low' if question.confidence < 0.75 else ('medium' if question.confidence < 0.9 else 'high') }}">置信度 {{ (question.confidence * 100) | round | int }}%</span>
+      <span class="review-count">当前科目还有 {{ remaining }} 题待复核</span>
+    </div>
+  </header>
+
+  {% if request.query_params.get('saved') %}<div class="notice success">已保存修改并同步 Markdown。</div>{% endif %}
+  {% if request.query_params.get('confirmed') %}<div class="notice success">上一题已确认，已切换到下一题。</div>{% endif %}
+  {% if request.query_params.get('deleted') %}<div class="notice success">误收题目 #{{ request.query_params.get('deleted') }} 已删除，并保留了可恢复备份。</div>{% endif %}
+
+  <div class="review-compare">
+    <section class="review-image-pane" aria-label="原题图片">
+      <div class="pane-heading">
+        <div><strong>原始照片</strong><span>已自动校正 EXIF 和文字方向</span></div>
+        <div class="image-tools">
+          <button class="button compact" type="button" data-image-action="left" title="向左旋转 90°">↺ 90°</button>
+          <button class="button compact" type="button" data-image-action="right" title="向右旋转 90°">↻ 90°</button>
+          <button class="button compact" type="button" data-image-action="fit">适应</button>
+        </div>
+      </div>
+      <div class="image-stage" data-image-stage>
+        {% if question.image_paths %}
+          {% for image in question.image_paths %}
+          <img class="review-source-image" data-review-image src="/media/{{ question.subject }}/{{ image }}" alt="原题图片 {{ loop.index }}">
+          {% endfor %}
+        {% else %}
+          <div class="image-empty">这道题没有关联原图</div>
+        {% endif %}
+      </div>
+      {% if question.image_paths | length > 1 %}<div class="image-page-count">关联 {{ question.image_paths | length }} 张照片，可上下滚动查看。</div>{% endif %}
+    </section>
+
+    <form class="review-form" method="post" action="/question/{{ question.subject }}/{{ question.id }}">
+      <input type="hidden" name="review_mode" value="1">
+      <input type="hidden" name="review_confidence" value="{{ review_confidence }}">
+      {% if next_question %}<input type="hidden" name="next_id" value="{{ next_question.id }}">{% endif %}
+      {% if previous_question %}<input type="hidden" name="previous_id" value="{{ previous_question.id }}">{% endif %}
+
+      <div class="pane-heading form-heading">
+        <div><strong>识别结果</strong><span>直接修改，公式使用 <code>$...$</code> 或 <code>$$...$$</code></span></div>
+        <span class="status-chip {{ 'review' if question.status == '待复核' else 'done' }}">{{ question.status }}</span>
+      </div>
+
+      <div class="review-fields">
+        <div class="four-cols">
+          <label>章节<input name="chapter" value="{{ question.chapter }}" {% if taxonomy and taxonomy.chapters %}list="taxonomy-chapters"{% endif %} required></label>
+          <label>知识板块<input name="section" value="{{ question.section }}" {% if taxonomy and taxonomy.sections %}list="taxonomy-sections"{% endif %} required></label>
+          <label>题型<input name="question_type" value="{{ question.question_type }}"></label>
+          <label>难度 / 置信度<div class="compact-pair"><input type="number" min="1" max="5" name="difficulty" value="{{ question.difficulty }}"><input type="number" min="0" max="1" step="0.01" name="confidence" value="{{ '%.2f' | format(question.confidence) }}"></div></label>
+        </div>
+
+        <div class="editor-field field-prominent">
+          <label for="review-question-text">题干</label>
+          <textarea id="review-question-text" name="question_text" rows="8" required data-preview-source="question-preview">{{ question.question_text }}</textarea>
+          <section class="live-preview" aria-label="题干实际效果">
+            <div class="live-preview-title">实际效果</div>
+            <div class="live-preview-content rich-text math-content" data-preview-output="question-preview">{{ question.question_text | richtext }}</div>
+          </section>
+        </div>
+        <div class="editor-field">
+          <label for="review-options">选项（每行一个）</label>
+          <textarea id="review-options" name="options" rows="6" data-preview-source="options-preview" data-preview-kind="options">{{ question.options | join('\n') }}</textarea>
+          <section class="live-preview" aria-label="选项实际效果">
+            <div class="live-preview-title">实际效果</div>
+            <div class="live-preview-content options math-content" data-preview-output="options-preview">
+              {% for option in question.options %}<span>{{ option | richtext }}</span>{% endfor %}
+            </div>
+          </section>
+        </div>
+        <div class="two-cols answers-grid">
+          <label class="wrong-field">我的错误答案<textarea name="wrong_answer" rows="3">{{ question.wrong_answer }}</textarea></label>
+          <label class="correct-field">正确答案<textarea name="correct_answer" rows="3">{{ question.correct_answer }}</textarea></label>
+        </div>
+        <div class="editor-field">
+          <label for="review-analysis">解析</label>
+          <textarea id="review-analysis" name="analysis" rows="8" data-preview-source="analysis-preview">{{ question.analysis }}</textarea>
+          <section class="live-preview" aria-label="解析实际效果">
+            <div class="live-preview-title">实际效果</div>
+            <div class="live-preview-content rich-text math-content" data-preview-output="analysis-preview">{{ question.analysis | richtext }}</div>
+          </section>
+        </div>
+        <label>错因<textarea name="error_reason" rows="3">{{ question.error_reason }}</textarea></label>
+        <div class="two-cols">
+          <label>知识点（逗号分隔）<input name="knowledge_points" value="{{ question.knowledge_points | join(', ') }}" {% if taxonomy and taxonomy.points %}list="taxonomy-points"{% endif %}></label>
+          <label>状态<select name="status"><option {% if question.status == '待复核' %}selected{% endif %}>待复核</option><option {% if question.status == '已复核' %}selected{% endif %}>已复核</option></select></label>
+        </div>
+
+        {% if question.image_paths %}
+        <fieldset class="practice-images">
+          <legend>纯题 PDF 图片（只勾选不含答案、批注的题目插图）</legend>
+          {% for image in question.image_paths %}
+          <label><input type="checkbox" name="practice_images" value="{{ image }}" {% if image in question.practice_image_paths %}checked{% endif %}>{{ image }}</label>
+          {% endfor %}
+        </fieldset>
+        {% endif %}
+      </div>
+
+      {% if taxonomy and taxonomy.chapters %}
+      <datalist id="taxonomy-chapters">{% for value in taxonomy.chapters %}<option value="{{ value }}">{% endfor %}</datalist>
+      <datalist id="taxonomy-sections">{% for value in taxonomy.sections %}<option value="{{ value }}">{% endfor %}</datalist>
+      <datalist id="taxonomy-points">{% for value in taxonomy.points %}<option value="{{ value }}">{% endfor %}</datalist>
+      {% endif %}
+
+      <div class="review-actions">
+        <button class="button danger-button" type="submit" formaction="/question/{{ question.subject }}/{{ question.id }}/delete" formmethod="post" formnovalidate data-confirm-delete>删除本题</button>
+        <button class="button" type="submit" name="submit_action" value="save">仅保存，继续核对</button>
+        <button class="button primary confirm-button" type="submit" name="submit_action" value="confirm_next">确认无误{% if next_question %}，进入下一题{% else %}，完成本科复核{% endif %}</button>
+      </div>
+    </form>
+  </div>
+</section>
+{% endblock %}

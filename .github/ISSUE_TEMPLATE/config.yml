@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 私密安全报告
+    url: https://github.com/Nemoyuzx/cuoti-auto/security/advisories/new
+    about: 请勿公开披露漏洞、密钥或真实错题数据

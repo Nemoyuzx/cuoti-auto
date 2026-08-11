@@ -1,0 +1,22 @@
+{
+  "questions": [
+    {
+      "subject": "数学",
+      "chapter": "一元函数积分学",
+      "section": "高等数学",
+      "question_type": "计算题",
+      "question_text": "计算 $\\int_0^1 x e^{x^2} \\, dx$。",
+      "options": [],
+      "wrong_answer": "$e-1$",
+      "correct_answer": "$\\frac{e-1}{2}$",
+      "analysis": "令 $u=x^2$，则 $du=2x\\,dx$，所以原积分为 $$\\frac12\\int_0^1 e^u\\,du=\\frac{e-1}{2}.$$",
+      "error_reason": "换元后遗漏微分系数 $1/2$。",
+      "knowledge_points": ["换元积分法", "定积分"],
+      "difficulty": 2,
+      "confidence": 0.98,
+      "needs_review": true,
+      "source_page": 1
+    }
+  ],
+  "page_notes": "示例；实际导入必须对应原图。"
+}
