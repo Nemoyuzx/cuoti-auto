@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["httpx>=0.28,<1", "pytest>=8.4,<10"]
+dev = ["httpx>=0.28,<1", "pypdf>=6,<7", "pytest>=8.4,<10"]
 
 [project.scripts]
 cuoti = "cuoti.cli:main"

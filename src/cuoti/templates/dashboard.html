@@ -51,7 +51,7 @@
   <label>章节
     <select name="chapter">
       <option value="">全部章节</option>
-      {% for value in facets.chapters %}<option {% if filters.chapter == value %}selected{% endif %}>{{ value }}</option>{% endfor %}
+      {% for item in facets.chapter_options %}<option value="{{ item.value }}" {% if filters.chapter == item.value %}selected{% endif %}>{{ item.label }}</option>{% endfor %}
     </select>
   </label>
   <label>板块
@@ -95,7 +95,7 @@
         </div>
         <a class="card-body" href="/question/{{ item.subject }}/{{ item.id }}">
           <div class="question-text rich-text math-content">{{ item.question_text | richtext }}</div>
-          {% if item.options %}<div class="options math-content">{% for option in item.options %}<span>{{ option | richtext }}</span>{% endfor %}</div>{% endif %}
+          {% if item.options %}<div class="options math-content">{% for option in item.options %}{% if option %}<span><b class="option-label">{{ loop.index0 | option_label }}.</b>{{ option | richtext }}</span>{% endif %}{% endfor %}</div>{% endif %}
           {% if item.correct_answer %}<div class="answer-line rich-text math-content"><b>答案</b> {{ item.correct_answer | richtext }}</div>{% endif %}
         </a>
         <footer>
@@ -106,23 +106,7 @@
       {% endfor %}
     </section>
     {% else %}
-    <section class="empty-state"><strong>{{ active_subject }}还没有匹配的错题</strong><span>可以清除筛选，或在下方导入图片。</span></section>
+    <section class="empty-state"><strong>{{ active_subject }}还没有匹配的错题</strong><span>可以清除筛选，或前往独立导入页面添加图片。</span><a class="button primary" href="/import">前往导入</a></section>
     {% endif %}
-
-    <section class="import-panel" id="import">
-      <div>
-        <h2>导入纸质错题</h2>
-        <p>自动结果默认进入待复核，科目由识别结果自动分页。</p>
-      </div>
-      <form method="post" action="/import" enctype="multipart/form-data">
-        <input type="file" name="files" accept="image/*" multiple required>
-        <select name="provider">
-          <option value="tesseract">Tesseract（离线保底）</option>
-          <option value="openai">视觉模型（需 API Key）</option>
-          <option value="mineru">MinerU（需另装）</option>
-        </select>
-        <button class="button primary" type="submit">识别并入库</button>
-      </form>
-    </section>
 </div>
 {% endblock %}

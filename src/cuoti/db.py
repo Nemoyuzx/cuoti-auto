@@ -10,7 +10,17 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import SUBJECTS, Settings, ensure_directories
-from .models import ExtractedQuestion, QuestionRecord, utc_now
+from .models import (
+    ExtractedQuestion,
+    QuestionRecord,
+    normalize_correct_answer,
+    normalize_error_reason,
+    normalize_options,
+    normalize_wrong_answer,
+    option_label,
+    utc_now,
+)
+from .rich_text import normalize_rich_text_spacing
 
 
 SCHEMA = """
@@ -44,6 +54,7 @@ CREATE TABLE IF NOT EXISTS images (
     relative_path TEXT NOT NULL,
     original_name TEXT NOT NULL,
     page_index INTEGER NOT NULL DEFAULT 1,
+    image_role TEXT NOT NULL DEFAULT 'question' CHECK(image_role IN ('question', 'work', 'solution', 'supplement')),
     include_in_practice INTEGER NOT NULL DEFAULT 0,
     UNIQUE(question_id, relative_path)
 );
@@ -107,6 +118,14 @@ class SubjectStore:
             columns = {row["name"] for row in conn.execute("PRAGMA table_info(images)")}
             if "include_in_practice" not in columns:
                 conn.execute("ALTER TABLE images ADD COLUMN include_in_practice INTEGER NOT NULL DEFAULT 0")
+            if "image_role" not in columns:
+                conn.execute("ALTER TABLE images ADD COLUMN image_role TEXT NOT NULL DEFAULT 'question'")
+                # Historical attached pages used a stable filename suffix. Mark
+                # them conservatively until the batch-specific migration can
+                # distinguish handwritten work from standard solutions.
+                conn.execute(
+                    "UPDATE images SET image_role='supplement' WHERE relative_path LIKE '%-supplement.%'"
+                )
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -153,7 +172,9 @@ class SubjectStore:
             question_id = int(cursor.lastrowid)
             if image_path:
                 conn.execute(
-                    "INSERT OR IGNORE INTO images(question_id, relative_path, original_name, page_index) VALUES (?, ?, ?, ?)",
+                    """INSERT OR IGNORE INTO images(
+                           question_id, relative_path, original_name, page_index, image_role
+                       ) VALUES (?, ?, ?, ?, 'question')""",
                     (question_id, image_path, Path(source_file).name, question.source_page),
                 )
         self.write_markdown(question_id)
@@ -165,8 +186,8 @@ class SubjectStore:
             row = conn.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
             if not row:
                 return None
-            images, practice_images = self._image_paths(conn, question_id)
-        return _row_to_record(row, images, practice_images)
+            images, practice_images, question_images, solution_images = self._image_paths(conn, question_id)
+        return _row_to_record(row, images, practice_images, question_images, solution_images)
 
     def list(self, filters: dict[str, str] | None = None) -> list[QuestionRecord]:
         self.initialize()
@@ -194,8 +215,8 @@ class SubjectStore:
             rows = conn.execute(sql, params).fetchall()
             result = []
             for row in rows:
-                images, practice_images = self._image_paths(conn, row["id"])
-                result.append(_row_to_record(row, images, practice_images))
+                images, practice_images, question_images, solution_images = self._image_paths(conn, row["id"])
+                result.append(_row_to_record(row, images, practice_images, question_images, solution_images))
         return sorted(result, key=question_sort_key)
 
     def update(self, question_id: int, fields: dict[str, Any]) -> None:
@@ -204,8 +225,19 @@ class SubjectStore:
             "correct_answer", "analysis", "error_reason", "difficulty", "confidence", "status",
         }
         updates = {k: v for k, v in fields.items() if k in allowed}
+        for field in ("question_text", "wrong_answer", "correct_answer", "analysis", "error_reason"):
+            if field in updates:
+                updates[field] = (
+                    normalize_correct_answer(updates[field])
+                    if field == "correct_answer"
+                    else normalize_wrong_answer(updates[field])
+                    if field == "wrong_answer"
+                    else normalize_error_reason(updates[field])
+                    if field == "error_reason"
+                    else normalize_rich_text_spacing(str(updates[field])).strip()
+                )
         if "options" in fields:
-            updates["options_json"] = json.dumps(fields["options"], ensure_ascii=False)
+            updates["options_json"] = json.dumps(normalize_options(fields["options"]), ensure_ascii=False)
         if "knowledge_points" in fields:
             updates["knowledge_points_json"] = json.dumps(fields["knowledge_points"], ensure_ascii=False)
         if not updates:
@@ -219,7 +251,11 @@ class SubjectStore:
     def set_practice_images(self, question_id: int, relative_paths: list[str]) -> None:
         selected = set(relative_paths)
         with self.connection() as conn:
-            rows = conn.execute("SELECT relative_path FROM images WHERE question_id=?", (question_id,)).fetchall()
+            rows = conn.execute(
+                """SELECT relative_path FROM images
+                   WHERE question_id=? AND image_role!='solution'""",
+                (question_id,),
+            ).fetchall()
             allowed = {row["relative_path"] for row in rows}
             conn.execute("UPDATE images SET include_in_practice=0 WHERE question_id=?", (question_id,))
             for relative_path in selected & allowed:
@@ -227,6 +263,30 @@ class SubjectStore:
                     "UPDATE images SET include_in_practice=1 WHERE question_id=? AND relative_path=?",
                     (question_id, relative_path),
                 )
+
+    def add_image(
+        self,
+        question_id: int,
+        relative_path: str,
+        original_name: str,
+        page_index: int,
+        image_role: str = "question",
+    ) -> None:
+        """Attach a derived review image with an explicit semantic role."""
+        if image_role not in {"question", "work", "solution", "supplement"}:
+            raise ValueError(f"未知图片类型：{image_role}")
+        self.initialize()
+        with self.connection() as conn:
+            conn.execute(
+                """INSERT INTO images(
+                       question_id, relative_path, original_name, page_index, image_role, include_in_practice
+                   ) VALUES (?, ?, ?, ?, ?, 0)
+                   ON CONFLICT(question_id, relative_path) DO UPDATE SET
+                       original_name=excluded.original_name,
+                       page_index=excluded.page_index,
+                       image_role=excluded.image_role""",
+                (question_id, relative_path, original_name, page_index, image_role),
+            )
 
     def delete(self, question_id: int) -> Path | None:
         """Remove one mistaken record while keeping a recoverable local backup."""
@@ -269,14 +329,19 @@ class SubjectStore:
         return backup_path
 
     @staticmethod
-    def _image_paths(conn: sqlite3.Connection, question_id: int) -> tuple[list[str], list[str]]:
+    def _image_paths(
+        conn: sqlite3.Connection, question_id: int,
+    ) -> tuple[list[str], list[str], list[str], list[str]]:
         rows = conn.execute(
-            "SELECT relative_path, include_in_practice FROM images WHERE question_id=? ORDER BY page_index, id",
+            """SELECT relative_path, include_in_practice, image_role
+               FROM images WHERE question_id=? ORDER BY page_index, id""",
             (question_id,),
         ).fetchall()
         return (
             [row["relative_path"] for row in rows],
             [row["relative_path"] for row in rows if row["include_in_practice"]],
+            [row["relative_path"] for row in rows if row["image_role"] != "solution"],
+            [row["relative_path"] for row in rows if row["image_role"] == "solution"],
         )
 
     def write_markdown(self, question_id: int) -> Path:
@@ -284,8 +349,16 @@ class SubjectStore:
         if record is None:
             raise KeyError(question_id)
         path = self.root / "markdown" / f"{question_id:06d}.md"
-        options = "\n".join(f"- {item}" for item in record.options) or "（无选项）"
-        images = "\n".join(f"![原题图片](../{item})" for item in record.image_paths)
+        options = "\n".join(
+            f"- {option_label(index)}. {item}"
+            for index, item in enumerate(record.options) if item
+        ) or "（无选项）"
+        question_images = "\n".join(
+            f"![题目或作答照片](../{item})" for item in record.question_image_paths
+        )
+        solution_images = "\n".join(
+            f"![答案或解析照片](../{item})" for item in record.solution_image_paths
+        )
         knowledge = "、".join(record.knowledge_points) or "待补充"
         content = f"""---
 id: {record.id}
@@ -307,7 +380,7 @@ updated_at: {record.updated_at}
 
 {options}
 
-{images}
+{question_images}
 
 ## 我的错误答案
 
@@ -320,6 +393,8 @@ updated_at: {record.updated_at}
 ## 解析
 
 {record.analysis or '待补充'}
+
+{solution_images}
 
 ## 错因与知识点
 
@@ -334,16 +409,24 @@ updated_at: {record.updated_at}
             row = conn.execute("SELECT * FROM questions WHERE id=?", (question_id,)).fetchone()
             if not row:
                 return None
-            images, practice_images = self._image_paths(conn, question_id)
-        return _row_to_record(row, images, practice_images)
+            images, practice_images, question_images, solution_images = self._image_paths(conn, question_id)
+        return _row_to_record(row, images, practice_images, question_images, solution_images)
 
 
-def _row_to_record(row: sqlite3.Row, images: list[str], practice_images: list[str]) -> QuestionRecord:
+def _row_to_record(
+    row: sqlite3.Row,
+    images: list[str],
+    practice_images: list[str],
+    question_images: list[str],
+    solution_images: list[str],
+) -> QuestionRecord:
     data = dict(row)
     data["options"] = json.loads(data.pop("options_json") or "[]")
     data["knowledge_points"] = json.loads(data.pop("knowledge_points_json") or "[]")
     data["image_paths"] = images
     data["practice_image_paths"] = practice_images
+    data["question_image_paths"] = question_images
+    data["solution_image_paths"] = solution_images
     data["needs_review"] = data["status"] == "待复核"
     return QuestionRecord.model_validate(data)
 

@@ -69,6 +69,12 @@ document.addEventListener("DOMContentLoaded", () => {
         applyRotation();
       });
     });
+    document.querySelectorAll("[data-image-jump]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const target = imageStage.querySelector(`[data-image-group="${button.dataset.imageJump}"]`);
+        target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
   }
 
   const exportPanel = document.querySelector("[data-export-panel]");

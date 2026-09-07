@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from PIL import Image
+from pypdf import PdfReader
 
 from cuoti.config import Settings
 from cuoti.db import SubjectStore
@@ -17,6 +18,7 @@ def test_both_pdf_variants_render(tmp_path: Path):
     question_id = store.insert(ExtractedQuestion(
         subject="数学", chapter="一元积分", section="高等数学", question_type="计算题",
         question_text="计算 $\\int_0^1 x e^{x^2}\\,dx$。",
+        options=["A. $0$", "B. $1$"],
         wrong_answer="$e-1$", correct_answer="$\\frac{e-1}{2}$",
         analysis="令 $u=x^2$，则 $du=2x\\,dx$。",
         error_reason="换元后遗漏系数。", knowledge_points=["换元积分法"], needs_review=False,
@@ -48,6 +50,21 @@ def test_pdf_rich_text_renders_fenced_code_without_rendering_formula_inside_code
     assert rendered.count('class="katex"') == 1
 
 
+def test_pdf_rich_text_removes_breaks_around_display_math(tmp_path: Path):
+    project = Path(__file__).resolve().parents[1]
+    settings = Settings(project, tmp_path / "Desktop", "127.0.0.1", 8765, "gpt-4o-mini")
+
+    rendered = render_rich_many([
+        "先说明。\n\n$$x^2=1$$\n\n再说明 $x=1$。\n\n$$y=2$$\n\n结束。",
+    ], settings)[0]
+
+    assert "<br><span class=\"katex-display\">" not in rendered
+    assert "</span><br>" not in rendered
+    assert "先说明。<span class=\"katex-display\">" in rendered
+    assert "</span>再说明" in rendered
+    assert "</span>结束。" in rendered
+
+
 def test_algorithm_application_is_a_solution_question(tmp_path: Path):
     project = Path(__file__).resolve().parents[1]
     settings = Settings(project, tmp_path / "Desktop", "127.0.0.1", 8765, "gpt-4o-mini")
@@ -63,3 +80,32 @@ def test_algorithm_application_is_a_solution_question(tmp_path: Path):
 
     assert is_solution_question(store.get(solution_id))  # type: ignore[arg-type]
     assert not is_solution_question(store.get(choice_id))  # type: ignore[arg-type]
+
+
+def test_short_solution_questions_fill_the_same_pdf_page(tmp_path: Path):
+    """短解答题只要不被拆栏，不应强制每题独占整个栏高。"""
+    project = Path(__file__).resolve().parents[1]
+    settings = Settings(project, tmp_path / "Desktop", "127.0.0.1", 8765, "gpt-4o-mini")
+    store = SubjectStore("数学", settings)
+    records = []
+    for index in range(4):
+        question_id = store.insert(
+            ExtractedQuestion(
+                subject="数学",
+                chapter="第1章",
+                section="高等数学",
+                question_type="解答题",
+                question_text=f"计算第 {index + 1} 题。",
+                correct_answer=str(index + 1),
+                analysis="按定义直接计算。",
+                needs_review=False,
+            ),
+            f"solution-{index}",
+            f"source-{index}.jpg",
+        )
+        records.append(store.get(question_id))
+
+    output = tmp_path / "dense-solutions.pdf"
+    export_pdf(records, "notebook", output, settings)  # type: ignore[arg-type]
+
+    assert len(PdfReader(output).pages) == 1

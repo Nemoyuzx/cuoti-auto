@@ -28,6 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
     imported.add_argument("--source", type=Path, required=True)
     serve = sub.add_parser("serve", help="启动本地错题本网页")
     serve.add_argument("--no-open", action="store_true")
+    service = sub.add_parser("service", help="管理 macOS 登录自启与常驻服务")
+    service.add_argument(
+        "action",
+        choices=("install", "status", "uninstall", "open-when-ready"),
+    )
     export = sub.add_parser("export", help="导出 PDF")
     export.add_argument("--variant", choices=("practice", "notebook"), required=True)
     export.add_argument("--subject", choices=SUBJECTS)
@@ -85,6 +90,22 @@ def main(argv: list[str] | None = None) -> int:
             ], cwd=settings.project_root)
         except KeyboardInterrupt:
             return 0
+    if args.command == "service":
+        from .macos_service import install, open_when_ready, status, uninstall
+
+        if args.action == "install":
+            service_path, opener_path = install(settings)
+            print(f"已安装常驻服务：{service_path}")
+            print(f"已安装登录打开器：{opener_path}")
+            return 0
+        if args.action == "status":
+            return status(settings)
+        if args.action == "uninstall":
+            service_path, opener_path = uninstall()
+            print(f"已移除服务配置：{service_path}")
+            print(f"已移除打开器配置：{opener_path}")
+            return 0
+        return open_when_ready(settings)
     if args.command == "export":
         questions = list_all({"subject": args.subject or "", "chapter": args.chapter, "section": args.section}, settings)
         print(export_pdf(questions, args.variant, args.output, settings))
