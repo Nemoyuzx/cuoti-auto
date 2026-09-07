@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}导入错题 · 错题_auto{% endblock %}
+{% block content %}
+<section class="import-page">
+  {% if imported_count %}
+  <div class="notice success import-success">
+    <div><strong>本次已导入 {{ imported_count }} 道题</strong><span>自动识别结果已进入待复核，不会跳转到某一个科目页面。</span></div>
+    <div class="import-result-links">
+      {% for subject, slug in imported_subjects %}<a class="button" href="/subject/{{ slug }}?status=待复核">查看{{ subject }}待复核题</a>{% endfor %}
+      <a class="button primary" href="/review">开始对比复核</a>
+    </div>
+  </div>
+  {% endif %}
+
+  <header class="import-heading">
+    <div><span class="eyebrow">独立工作区</span><h1>导入纸质错题</h1></div>
+    <p>一次可选择多张照片。系统识别科目后会写入对应的独立题库，导入页本身不属于 408 或其他科目。</p>
+  </header>
+
+  <div class="import-layout">
+    <form class="import-card import-form" method="post" action="/import" enctype="multipart/form-data">
+      <div class="import-card-head"><strong>选择图片并识别</strong><span>原始照片始终保留，展示副本会自动校正方向</span></div>
+      <label class="file-drop">
+        <span class="file-drop-title">题目、作答与答案解析照片</span>
+        <span class="file-drop-help">支持 JPG、PNG、HEIC 等图片，可多选</span>
+        <input type="file" name="files" accept="image/*" multiple required>
+      </label>
+      <label>识别方式
+        <select name="provider">
+          <option value="tesseract">Tesseract（离线保底）</option>
+          <option value="openai">视觉模型（需 API Key）</option>
+          <option value="mineru">MinerU（需另装）</option>
+        </select>
+      </label>
+      <button class="button primary import-submit" type="submit">识别并写入对应科目</button>
+      <p class="import-form-note">处理期间当前请求会等待；完成后仍返回本导入页，并显示本次入库结果。</p>
+    </form>
+
+    <aside class="import-card import-guide">
+      <div class="import-card-head"><strong>导入规则</strong><span>统一用于数学、英语、408、政治</span></div>
+      <ol>
+        <li><b>自动分科</b><span>识别结果直接进入对应科目的 SQLite 与 Markdown。</span></li>
+        <li><b>保留来源</b><span>题目图、作答图和标准解析图在复核时分别展示。</span></li>
+        <li><b>先复核后使用</b><span>自动结果默认标记为待复核，并附置信度。</span></li>
+        <li><b>去重保护</b><span>相同图片中的相同题干不会重复建立记录。</span></li>
+      </ol>
+      <div class="import-subject-links">
+        {% for subject in subjects %}<a href="/subject/{{ subject_slugs[subject] }}">{{ subject }}错题库</a>{% endfor %}
+      </div>
+    </aside>
+  </div>
+</section>
+{% endblock %}

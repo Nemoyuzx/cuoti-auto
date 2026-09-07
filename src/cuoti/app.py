@@ -15,6 +15,7 @@ from .config import SUBJECTS, SUBJECT_SLUGS, Settings, ensure_directories
 from .db import SubjectStore, initialize_all, list_all, natural_text_sort_key
 from .export_jobs import export_job_output, get_export_job, start_export_job
 from .ingest import ingest_path
+from .models import normalize_options, option_label, parse_options_text
 from .pdf_export import export_pdf
 from .rich_text import render_web_rich_text
 from .taxonomy import data_structure_choices, politics_choices
@@ -24,12 +25,19 @@ settings = Settings.load()
 ensure_directories(settings)
 initialize_all(settings)
 
+MATH_SECTION_SHORT_LABELS = {
+    "高等数学": "高数",
+    "线性代数": "线代",
+    "概率论与数理统计": "概率",
+}
+
 PACKAGE_ROOT = Path(__file__).parent
 templates = Environment(
     loader=FileSystemLoader(PACKAGE_ROOT / "templates"),
     autoescape=select_autoescape(["html"]),
 )
 templates.filters["richtext"] = lambda value: Markup(render_web_rich_text(value or ""))
+templates.filters["option_label"] = option_label
 
 app = FastAPI(title="错题_auto", version="0.1.0")
 app.mount("/static", StaticFiles(directory=PACKAGE_ROOT / "static"), name="static")
@@ -65,9 +73,10 @@ async def render_preview(request: Request) -> JSONResponse:
         raise HTTPException(400, "预览字段格式错误")
 
     if kind == "options":
-        options = [line.strip() for line in value.splitlines() if line.strip()]
+        options = parse_options_text(value)
         rendered = "".join(
-            f"<span>{render_web_rich_text(option)}</span>" for option in options
+            f'<span><b class="option-label">{option_label(index)}.</b>{render_web_rich_text(option)}</span>'
+            for index, option in enumerate(options) if option
         )
     else:
         rendered = render_web_rich_text(value)
@@ -80,6 +89,21 @@ def home(request: Request, subject: str = "") -> RedirectResponse:
     params = {key: value for key, value in request.query_params.items() if key != "subject"}
     suffix = f"?{urlencode(params)}" if params else ""
     return RedirectResponse(f"/subject/{SUBJECT_SLUGS[selected]}{suffix}", status_code=303)
+
+
+@app.get("/import", response_class=HTMLResponse)
+def import_page(request: Request, imported: int = 0, subjects: str = "") -> HTMLResponse:
+    """Render the standalone ingestion workspace outside every subject library."""
+    subject_by_slug = {slug: name for name, slug in SUBJECT_SLUGS.items()}
+    imported_subjects = [
+        (subject_by_slug[slug], slug)
+        for slug in dict.fromkeys(item.strip() for item in subjects.split(","))
+        if slug in subject_by_slug
+    ]
+    return render(
+        "import.html", request,
+        imported_count=max(0, imported), imported_subjects=imported_subjects,
+    )
 
 
 @app.get("/subject/{subject_slug}", response_class=HTMLResponse)
@@ -102,8 +126,29 @@ def subject_dashboard(
     }
     questions = list_all(filters, settings)
     all_items = list_all({"subject": subject}, settings)
+    chapters = sorted({item.chapter for item in all_items}, key=natural_text_sort_key)
+    chapter_sections = {
+        chapter: sorted(
+            {item.section for item in all_items if item.chapter == chapter},
+            key=natural_text_sort_key,
+        )
+        for chapter in chapters
+    }
+    chapter_options = [
+        {
+            "value": chapter,
+            "label": (
+                f"{' / '.join(MATH_SECTION_SHORT_LABELS.get(value, value) for value in chapter_sections[chapter])}"
+                f" · {chapter}"
+                if subject == "数学"
+                else chapter
+            ),
+        }
+        for chapter in chapters
+    ]
     facets = {
-        "chapters": sorted({item.chapter for item in all_items}, key=natural_text_sort_key),
+        "chapters": chapters,
+        "chapter_options": chapter_options,
         "sections": sorted({item.section for item in all_items}, key=natural_text_sort_key),
         "statuses": sorted({item.status for item in all_items}),
     }
@@ -231,7 +276,7 @@ def question_update(
         "section": section.strip() or "待确认",
         "question_type": question_type.strip() or "未知题型",
         "question_text": question_text.strip(),
-        "options": [line.strip() for line in options.splitlines() if line.strip()],
+        "options": parse_options_text(options),
         "wrong_answer": wrong_answer.strip(),
         "correct_answer": correct_answer.strip(),
         "analysis": analysis.strip(),
@@ -300,8 +345,13 @@ def upload_import(
             with target.open("wb") as stream:
                 shutil.copyfileobj(upload.file, stream)
             saved.extend(ingest_path(target, provider, settings))
-    subject = saved[0][0] if saved else "408"
-    return RedirectResponse(f"/subject/{SUBJECT_SLUGS[subject]}?imported=1", status_code=303)
+    imported_slugs = ",".join(
+        SUBJECT_SLUGS[subject] for subject in dict.fromkeys(subject for subject, _ in saved)
+    )
+    return RedirectResponse(
+        f"/import?{urlencode({'imported': len(saved), 'subjects': imported_slugs})}",
+        status_code=303,
+    )
 
 
 @app.get("/media/{subject}/{relative_path:path}")

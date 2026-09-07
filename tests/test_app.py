@@ -22,6 +22,8 @@ def test_review_page_shows_source_and_edit_form(monkeypatch, tmp_path: Path):
         "review-hash", str(source), "assets/source.jpg",
     )
     (store.root / "assets" / "source.jpg").write_bytes(b"image")
+    (store.root / "assets" / "solution.jpg").write_bytes(b"solution")
+    store.add_image(question_id, "assets/solution.jpg", "answer.jpg", 2, "solution")
     monkeypatch.setattr(app_module, "settings", settings)
     client = TestClient(app_module.app)
 
@@ -31,17 +33,49 @@ def test_review_page_shows_source_and_edit_form(monkeypatch, tmp_path: Path):
 
     page = client.get(start.headers["location"])
     assert page.status_code == 200
-    assert "原始照片" in page.text
+    assert "复核照片" in page.text
+    assert "题目 / 作答照片" in page.text
+    assert "答案 / 解析照片" in page.text
+    assert 'data-image-jump="solution"' in page.text
+    assert 'alt="答案或解析照片 1"' in page.text
+    assert 'name="practice_images" value="assets/source.jpg"' in page.text
+    assert 'name="practice_images" value="assets/solution.jpg"' not in page.text
     assert "识别结果" in page.text
     assert "data-review-image" in page.text
     assert 'name="question_text"' in page.text
     assert 'data-preview-source="question-preview"' in page.text
     assert 'data-preview-source="options-preview"' in page.text
+    assert 'data-preview-source="wrong-answer-preview"' in page.text
+    assert 'data-preview-source="correct-answer-preview"' in page.text
     assert 'data-preview-source="analysis-preview"' in page.text
-    assert page.text.count('class="live-preview-title">实际效果') == 3
+    assert page.text.count('class="live-preview-title">实际效果') == 5
+    assert 'aria-label="错误答案实际效果"' in page.text
+    assert "空白或只有红笔答案时填“不会”" not in page.text
+    assert 'aria-label="正确答案实际效果"' in page.text
+    assert '<label class="compact-number-field">难度<input' in page.text
+    assert '<label class="compact-number-field">置信度<input' in page.text
+    assert "难度 / 置信度" not in page.text
+    assert 'class="review-metadata-main"' in page.text
+    assert 'class="review-score-row" aria-label="识别质量"' in page.text
+    assert "/static/app.css?v=20260812-import-page-1" in page.text
+    assert "/static/app.js?v=20260812-import-page-1" in page.text
     assert 'value="confirm_next"' in page.text
     assert 'id="taxonomy-chapters"' in page.text
     assert "4.2.2 KMP 算法" in page.text
+
+    generic_reason = "题号被圈或答案被红笔订正，需要对照标准解析复盘原解中的具体错误。"
+    saved = client.post(
+        f"/question/408/{question_id}",
+        data={
+            "chapter": "树", "section": "数据结构", "question_text": "一道待复核题",
+            "error_reason": generic_reason, "status": "待复核", "review_mode": "1",
+            "submit_action": "save_next",
+        },
+        follow_redirects=False,
+    )
+    assert saved.status_code == 303
+    assert store.get(question_id).error_reason == ""  # type: ignore[union-attr]
+    assert store.get(question_id).wrong_answer == "不会"  # type: ignore[union-attr]
 
     confirmed = client.post(
         f"/question/408/{question_id}",
@@ -158,6 +192,46 @@ def test_subjects_have_separate_pages_without_subject_select(monkeypatch, tmp_pa
     assert 'data-export-panel data-subject="408"' in page.text
     assert 'class="export-popover"' in page.text
     assert "完整版不包含原始拍照页" in page.text
+    assert 'id="import"' not in page.text
+    assert 'action="/import"' not in page.text
+    assert 'href="/import">导入</a>' in page.text
+
+
+def test_import_has_standalone_page_and_returns_there_after_upload(monkeypatch, tmp_path: Path):
+    settings = Settings(tmp_path / "project", tmp_path / "Desktop", "127.0.0.1", 8765, "gpt-4o-mini")
+    monkeypatch.setattr(app_module, "settings", settings)
+
+    def fake_ingest(path, provider, active_settings):
+        assert path.name == "page.jpg"
+        assert provider == "tesseract"
+        assert active_settings is settings
+        return [("408", 10), ("数学", 11)]
+
+    monkeypatch.setattr(app_module, "ingest_path", fake_ingest)
+    client = TestClient(app_module.app)
+
+    page = client.get("/import")
+    assert page.status_code == 200
+    assert "独立工作区" in page.text
+    assert "导入纸质错题" in page.text
+    assert 'form class="import-card import-form"' in page.text
+    assert 'action="/import"' in page.text
+    assert 'href="/subject/cs408#import"' not in page.text
+
+    response = client.post(
+        "/import",
+        files={"files": ("page.jpg", b"image", "image/jpeg")},
+        data={"provider": "tesseract"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    assert response.headers["location"] == "/import?imported=2&subjects=cs408%2Cmath"
+
+    result = client.get(response.headers["location"])
+    assert result.status_code == 200
+    assert "本次已导入 2 道题" in result.text
+    assert "查看408待复核题" in result.text
+    assert "查看数学待复核题" in result.text
 
 
 def test_dashboard_uses_two_column_cards_horizontal_options_and_dates(monkeypatch, tmp_path: Path):
@@ -176,7 +250,11 @@ def test_dashboard_uses_two_column_cards_horizontal_options_and_dates(monkeypatc
     assert page.status_code == 200
     assert '<div class="options math-content">' in page.text
     assert '<ol class="options' not in page.text
-    assert page.text.count("A. 甲") == 1 and page.text.count("B. 乙") == 1
+    assert page.text.count('class="option-label"') == 2
+    assert '<b class="option-label">A.</b>甲' in page.text
+    assert '<b class="option-label">B.</b>乙' in page.text
+    assert "A. A. 甲" not in page.text and "B. B. 乙" not in page.text
+    assert store.get(question_id).options == ["甲", "乙"]  # type: ignore[union-attr]
     assert f"#{question_id} · 20" in page.text
 
 
@@ -209,6 +287,34 @@ def test_dashboard_prioritizes_low_confidence_review(monkeypatch, tmp_path: Path
     assert 'name="review_confidence" value="low"' in review.text
 
 
+def test_math_chapter_filter_labels_each_chapter_with_its_section(monkeypatch, tmp_path: Path):
+    settings = Settings(tmp_path / "project", tmp_path / "Desktop", "127.0.0.1", 8765, "gpt-4o-mini")
+    store = SubjectStore("数学", settings)
+    store.insert(
+        ExtractedQuestion(
+            subject="数学", chapter="第1章 函数极限与连续",
+            section="高等数学", question_text="高数题",
+        ),
+        "calculus-chapter", "source.jpg",
+    )
+    store.insert(
+        ExtractedQuestion(
+            subject="数学", chapter="第1章 行列式",
+            section="线性代数", question_text="线代题",
+        ),
+        "linear-algebra-chapter", "source.jpg",
+    )
+    monkeypatch.setattr(app_module, "settings", settings)
+
+    page = TestClient(app_module.app).get("/subject/math?chapter=第1章+行列式")
+
+    assert page.status_code == 200
+    assert '<option value="第1章 函数极限与连续" >高数 · 第1章 函数极限与连续</option>' in page.text
+    assert '<option value="第1章 行列式" selected>线代 · 第1章 行列式</option>' in page.text
+    assert "线代题" in page.text
+    assert "高数题" not in page.text
+
+
 def test_live_preview_endpoint_uses_formal_rich_text_renderer():
     client = TestClient(app_module.app)
 
@@ -226,6 +332,10 @@ def test_live_preview_endpoint_uses_formal_rich_text_renderer():
     )
     assert options.status_code == 200
     assert options.json()["html"].count("<span>") == 2
+    assert '<b class="option-label">A.</b>' in options.json()["html"]
+    assert '<b class="option-label">B.</b>' in options.json()["html"]
+    assert "A. A." not in options.json()["html"]
+    assert "B. B." not in options.json()["html"]
     assert "&lt;script&gt;" in options.json()["html"]
     assert "<script>" not in options.json()["html"]
     stylesheet = (Path(__file__).resolve().parents[1] / "src/cuoti/static/app.css").read_text(encoding="utf-8")
@@ -277,6 +387,10 @@ def test_question_detail_prioritizes_content_and_collapses_source_editor(monkeyp
     assert "SqList &amp;L" in page.text
     assert "detail-layout" not in page.text
     assert f"#{question_id} · 20" in page.text
+    assert 'id="detail-wrong-answer"' in page.text
+    assert 'data-preview-source="wrong-answer-preview"' in page.text
+    assert 'id="detail-correct-answer"' in page.text
+    assert 'data-preview-source="correct-answer-preview"' in page.text
 
 
 def test_dashboard_and_chapter_filter_use_natural_chapter_order(monkeypatch, tmp_path: Path):

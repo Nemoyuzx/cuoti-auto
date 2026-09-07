@@ -2,23 +2,24 @@ from __future__ import annotations
 
 import html
 import json
-import os
 import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Callable, Iterable
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from .config import Settings
-from .models import QuestionRecord
-from .rich_text import code_block_html, split_rich_text
+from .models import QuestionRecord, option_label
+from .rich_text import code_block_html, normalize_rich_text_spacing, split_rich_text
 
 
 FORMULA_RE = re.compile(r"\$\$(.+?)\$\$|(?<!\$)\$([^$\n]+?)\$(?!\$)", re.DOTALL)
 SOLUTION_TYPE_MARKERS = ("解答", "应用", "计算", "证明", "简答", "论述", "写作", "翻译")
+PDF_CHUNK_SIZE = 24
 
 
 def pdf_image_paths(question: QuestionRecord, variant: str) -> list[str]:
@@ -43,7 +44,7 @@ def _node_executable() -> str:
 
 
 def render_rich_many(texts: Iterable[str], settings: Settings) -> list[str]:
-    values = list(texts)
+    values = [normalize_rich_text_spacing(value) for value in texts]
     matches: list[re.Match[str]] = []
     for value in values:
         for segment in split_rich_text(value or ""):
@@ -73,14 +74,106 @@ def render_rich_many(texts: Iterable[str], settings: Settings) -> list[str]:
                 parts.append(code_block_html(segment.text, segment.language))
                 continue
             cursor = 0
+            previous_was_display = False
             for match in FORMULA_RE.finditer(segment.text):
-                parts.append(html.escape(segment.text[cursor:match.start()]).replace("\n", "<br>"))
+                before = segment.text[cursor:match.start()]
+                if previous_was_display:
+                    before = before.lstrip("\n")
+                is_display = match.group(1) is not None
+                if is_display:
+                    before = before.rstrip("\n")
+                parts.append(html.escape(before).replace("\n", "<br>"))
                 parts.append(rendered_formulas[formula_index])
                 formula_index += 1
                 cursor = match.end()
-            parts.append(html.escape(segment.text[cursor:]).replace("\n", "<br>"))
+                previous_was_display = is_display
+            tail = segment.text[cursor:]
+            if previous_was_display:
+                tail = tail.lstrip("\n")
+            parts.append(html.escape(tail).replace("\n", "<br>"))
         outputs.append("".join(parts))
     return outputs
+
+
+def _required_executable(name: str) -> str:
+    executable = shutil.which(name)
+    if not executable:
+        raise RuntimeError(f"PDF 导出需要 {name}；请运行 ./.venv/bin/cuoti doctor 检查环境。")
+    return executable
+
+
+def _render_chunks(
+    prepared: list[dict[str, object]],
+    variant: str,
+    output: Path,
+    settings: Settings,
+    template: object,
+    katex_css_uri: str,
+    generated_at: str,
+    progress: Callable[[int, str], None],
+) -> None:
+    """Render bounded batches in child processes, then merge them in order.
+
+    WeasyPrint otherwise retains the layout graph for every one of hundreds of
+    formula-heavy cards at once.  A fresh process per chunk gives the OS a hard
+    reclamation boundary and keeps the long-running web server lightweight.
+    """
+    temp_root = settings.project_root / "tmp"
+    temp_root.mkdir(parents=True, exist_ok=True)
+    chunk_groups = [
+        prepared[index:index + PDF_CHUNK_SIZE]
+        for index in range(0, len(prepared), PDF_CHUNK_SIZE)
+    ]
+    with tempfile.TemporaryDirectory(prefix="cuoti-pdf-chunks-", dir=temp_root) as temp_name:
+        temp = Path(temp_name)
+        chunk_pdfs: list[Path] = []
+        for chunk_index, chunk in enumerate(chunk_groups):
+            html_path = temp / f"chunk-{chunk_index:03d}.html"
+            pdf_path = temp / f"chunk-{chunk_index:03d}.pdf"
+            html_path.write_text(
+                template.render(
+                    questions=chunk,
+                    variant=variant,
+                    generated_at=generated_at,
+                    katex_css_uri=katex_css_uri,
+                    show_header=chunk_index == 0,
+                    total_count=len(prepared),
+                ),
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "cuoti.pdf_worker",
+                    str(html_path),
+                    str(pdf_path),
+                    settings.project_root.as_uri(),
+                ],
+                text=True,
+                capture_output=True,
+            )
+            if result.returncode:
+                detail = result.stderr.strip() or result.stdout.strip() or "未知错误"
+                raise RuntimeError(f"PDF 分块 {chunk_index + 1}/{len(chunk_groups)} 渲染失败：{detail}")
+            chunk_pdfs.append(pdf_path)
+            progress(
+                78 + int(18 * (chunk_index + 1) / len(chunk_groups)),
+                f"已渲染 {min((chunk_index + 1) * PDF_CHUNK_SIZE, len(prepared))}/{len(prepared)} 题",
+            )
+
+        output.unlink(missing_ok=True)
+        if len(chunk_pdfs) == 1:
+            shutil.copy2(chunk_pdfs[0], output)
+        else:
+            result = subprocess.run(
+                [_required_executable("pdfunite"), *map(str, chunk_pdfs), str(output)],
+                text=True,
+                capture_output=True,
+            )
+            if result.returncode:
+                detail = result.stderr.strip() or result.stdout.strip() or "未知错误"
+                raise RuntimeError(f"PDF 分块合并失败：{detail}")
 
 
 def export_pdf(
@@ -93,15 +186,6 @@ def export_pdf(
     def progress(value: int, message: str) -> None:
         if progress_callback:
             progress_callback(value, message)
-
-    # WeasyPrint 在 Apple Silicon Homebrew 上需要显式看到 Pango 动态库。
-    # 放在函数内惰性导入，确保 OCR、建库和 Web 启动不被可选 PDF 环境阻塞。
-    if sys.platform == "darwin" and Path("/opt/homebrew/lib").exists():
-        fallback = os.environ.get("DYLD_FALLBACK_LIBRARY_PATH", "")
-        paths = [item for item in fallback.split(":") if item]
-        if "/opt/homebrew/lib" not in paths:
-            os.environ["DYLD_FALLBACK_LIBRARY_PATH"] = ":".join(["/opt/homebrew/lib", *paths])
-    from weasyprint import HTML
 
     if variant not in {"practice", "notebook"}:
         raise ValueError("PDF 类型必须是 practice 或 notebook")
@@ -138,17 +222,21 @@ def export_pdf(
 
     template_dir = Path(__file__).parent / "templates"
     env = Environment(loader=FileSystemLoader(template_dir), autoescape=select_autoescape(["html"]))
+    env.filters["option_label"] = option_label
     template = env.get_template("pdf.html")
     katex_css = settings.project_root / "node_modules" / "katex" / "dist" / "katex.min.css"
     if not katex_css.exists():
         raise RuntimeError("缺少 KaTeX。请先运行 ./scripts/setup.sh（它会执行 npm install）。")
-    html_text = template.render(
-        questions=prepared,
-        variant=variant,
-        generated_at=datetime.now().strftime("%Y-%m-%d %H:%M"),
-        katex_css_uri=katex_css.resolve().as_uri(),
+    progress(78, "页面组装完成，正在分块写入 PDF")
+    _render_chunks(
+        prepared,
+        variant,
+        output,
+        settings,
+        template,
+        katex_css.resolve().as_uri(),
+        datetime.now().strftime("%Y-%m-%d %H:%M"),
+        progress,
     )
-    progress(78, "页面组装完成，正在写入 PDF")
-    HTML(string=html_text, base_url=settings.project_root.as_uri()).write_pdf(output)
     progress(98, "PDF 已生成，正在完成校验")
     return output
