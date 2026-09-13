@@ -167,13 +167,18 @@ exit 0
 """)
     _write_script(paths["supervisor"], f"""#!/bin/zsh
 set -u
+# LaunchServices can mojibake non-ASCII environment values while opening a
+# .command file. Let the installed package infer its own project root instead
+# of trusting the inherited CUOTI_PROJECT_ROOT value.
+unset CUOTI_PROJECT_ROOT
 URL={url}
 PID_FILE={pid_path}
 CUOTI={executable}
 SERVICE_LOG={service_log}
 SERVICE_ERROR={service_error}
 echo $$ > "$PID_FILE"
-trap '/bin/rm -f "$PID_FILE"' EXIT INT TERM
+trap '/bin/rm -f "$PID_FILE"' EXIT
+trap 'exit 0' INT TERM
 while true; do
   if /usr/bin/curl --fail --silent --max-time 1 "$URL" >/dev/null 2>&1; then
     /bin/sleep 3
@@ -224,10 +229,13 @@ def install(settings: Settings) -> tuple[Path, Path]:
     domain = f"gui/{os.getuid()}"
     for label in (OPENER_LABEL, SERVICE_LABEL):
         _launchctl("bootout", f"{domain}/{label}", check=False)
+    # ``launchctl disable`` persists even after a plist is removed.  Clear that
+    # state before bootstrap; otherwise reinstalling a previously disabled
+    # service fails with exit status 5 and leaves the web app unavailable.
+    for label in (SERVICE_LABEL, OPENER_LABEL):
+        _launchctl("enable", f"{domain}/{label}")
     for path in (service_path, opener_path):
         _launchctl("bootstrap", domain, str(path))
-    _launchctl("enable", f"{domain}/{SERVICE_LABEL}")
-    _launchctl("enable", f"{domain}/{OPENER_LABEL}")
     _launchctl("kickstart", "-k", f"{domain}/{SERVICE_LABEL}")
     return service_path, opener_path
 
