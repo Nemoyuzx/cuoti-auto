@@ -104,6 +104,8 @@ def main(argv: list[str] | None = None) -> int:
                 for hit in hits
             ], ensure_ascii=False, indent=2))
         else:
+            if not hits:
+                print("未找到符合线索的题目；请核对公式或原图。")
             for hit in hits:
                 summary = " ".join(hit.question.question_text.split())[:140]
                 print(f"{hit.score:5.1f}  {hit.question.subject} #{hit.question.id}  {hit.question.chapter}")

@@ -47,3 +47,30 @@ def test_search_is_subject_scoped_and_empty_query_has_no_results(tmp_path: Path)
     )
     assert search_questions("微分方程 积分 平方", subject="数学", settings=settings) == []
     assert search_questions("  ", settings=settings) == []
+
+
+def test_explicit_formula_must_match_despite_broad_topic_clues(tmp_path: Path) -> None:
+    settings = Settings(tmp_path / "project", tmp_path / "Desktop", "127.0.0.1", 8765, "model")
+    store = SubjectStore("数学", settings)
+    store.insert(
+        ExtractedQuestion(
+            subject="数学",
+            question_text="（1）解微分方程；（2）计算积分。",
+            analysis="被积函数是第一问所求函数的平方。",
+        ),
+        "broad-concepts", "source.jpg",
+    )
+    clue = "微分方程 积分 分母 (b+a/x+x)^2"
+    assert search_questions(clue, subject="数学", settings=settings) == []
+
+    target = store.insert(
+        ExtractedQuestion(
+            subject="数学",
+            question_text="求含参数 $a,b$ 的函数 $y(x)$。",
+            analysis="所得函数为 $y=1/(b+\\frac{a}{x}+x)^2$。",
+        ),
+        "formula-match", "source.jpg",
+    )
+    hits = search_questions(clue, subject="数学", settings=settings)
+    assert [hit.question.id for hit in hits] == [target]
+    assert "b+a/x+x" in hits[0].matched_clues

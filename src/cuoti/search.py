@@ -39,6 +39,9 @@ _SPACES = re.compile(r"\s+")
 _FIRST_PART = re.compile(r"第一问|第\s*[（(]?1[)）]?\s*问")
 _SECOND_PART = re.compile(r"第二问|第二题|第\s*[（(]?2[)）]?\s*问")
 _SQUARED_FUNCTION_INTEGRAL = re.compile(r"\\i?int.{0,160}(?:f|y)\([a-z]\)\^2")
+_SIMPLE_FRACTION = re.compile(r"\\(?:d?frac)\{([a-z0-9]+)\}\{([a-z0-9]+)\}")
+_SINGLE_SYMBOL_PARENS = re.compile(r"\(([a-z0-9]+)\)")
+_FORMULA_FRAGMENT = re.compile(r"[a-z0-9]+(?:[+*/-][a-z0-9]+){2,}")
 
 
 @dataclass(frozen=True)
@@ -50,6 +53,22 @@ class SearchHit:
 
 def _normalize(value: str) -> str:
     return _SPACES.sub("", _POWER_TWO.sub("^2", value)).casefold()
+
+
+def _normalize_formula(value: str) -> str:
+    value = _normalize(value).replace("\\left", "").replace("\\right", "")
+    value = _SIMPLE_FRACTION.sub(r"\1/\2", value)
+    return _SINGLE_SYMBOL_PARENS.sub(r"\1", value)
+
+
+def _formula_clues(query: str) -> tuple[str, ...]:
+    """长公式片段是定位约束，不能由无关概念的模糊分数代替。"""
+    normalized = _normalize_formula(query)
+    return tuple(dict.fromkeys(
+        fragment.group()
+        for fragment in _FORMULA_FRAGMENT.finditer(normalized)
+        if len(fragment.group()) >= 7
+    ))
 
 
 def _query_clues(query: str) -> tuple[list[tuple[str, tuple[str, ...]]], list[str]]:
@@ -104,6 +123,7 @@ def search_questions(
     if not query or limit < 1:
         return []
     concepts, words = _query_clues(query)
+    formula_clues = _formula_clues(query)
     if not concepts and not words:
         words = [query.casefold()]
 
@@ -111,8 +131,13 @@ def search_questions(
     hits: list[SearchHit] = []
     for question in list_all(filters, settings):
         fields = _field_values(question)
+        if formula_clues:
+            formula_fields = tuple(_normalize_formula(text) for text, _ in fields)
+            if not all(any(clue in text for text in formula_fields) for clue in formula_clues):
+                continue
         matched: list[str] = []
-        score = 0.0
+        score = 35.0 * len(formula_clues)
+        matched.extend(formula_clues)
         for name, aliases in concepts:
             strength = _best_match(aliases, fields)
             if strength:
