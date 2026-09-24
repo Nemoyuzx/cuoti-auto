@@ -15,6 +15,7 @@
 - 原图对照复核、分类建议、公式与代码块渲染
 - 后台生成纯题重做版和完整错题本版 PDF
 - 原始照片与校正后的展示副本分离保存
+- 本地中文线索检索：按题目描述查找候选错题，支持公式相关词与少量 OCR 字符误差
 
 ## 运行要求
 
@@ -34,11 +35,13 @@ cd cuoti-auto
 ./scripts/setup.sh
 ```
 
-安装脚本会创建 `.venv`、安装 Python 与 npm 依赖、初始化四科数据库，并在 macOS 桌面创建“打开错题本.command”快捷方式。之后也可以手动启动：
+安装脚本会创建 `.venv`、安装 Python 与 npm 依赖、初始化四科数据库，并在 macOS 桌面创建“打开错题本.command”快捷方式。macOS 上同时会安装用户级 LaunchAgent：登录后自动启动服务并打开一次浏览器，服务异常退出后会自动拉起。也可以手动管理：
 
 ```bash
 .venv/bin/cuoti doctor
-.venv/bin/cuoti serve
+.venv/bin/cuoti service status
+.venv/bin/cuoti service install
+.venv/bin/cuoti service uninstall
 ```
 
 浏览器会打开 <http://127.0.0.1:8765>。
@@ -90,6 +93,14 @@ export OPENAI_API_KEY="你的 API Key"
 ```bash
 .venv/bin/cuoti import-json tmp/codex_batch.json --source "/绝对路径/原图.jpg"
 ```
+
+### 凭描述找旧题
+
+```bash
+.venv/bin/cuoti search "微分方程 积分 平方" --subject 数学 --limit 8
+```
+
+检索结果按线索匹配程度排序；它帮助定位候选，最终仍需打开原图核对。
 
 ## PDF 导出
 

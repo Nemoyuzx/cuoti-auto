@@ -4,20 +4,26 @@
   <meta charset="utf-8">
   <link rel="stylesheet" href="{{ katex_css_uri }}">
   <style>
-    @page { size: A4; margin: 8mm 8mm 9mm; @bottom-right { content: "第 " counter(page) " 页"; font-size: 7.5pt; color: #777; } }
+    @page { size: A4; margin: 8mm 8mm 9mm; }
     * { box-sizing: border-box; }
     body { margin: 0; color: #151515; font-family: "Songti SC", "SimSun", serif; font-size: 9pt; line-height: 1.36; }
     header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: .45mm solid #111; padding-bottom: 2mm; margin-bottom: 3mm; }
     h1 { font: 700 15pt "Heiti SC", sans-serif; margin: 0; }
     header span { color: #666; font-size: 7.5pt; }
-    .grid { column-count: 2; column-gap: 4mm; }
-    .card { break-inside: avoid; display: inline-block; width: 100%; border: .25mm solid #b8b8b8; border-left: 1mm solid #222; border-radius: 1.2mm; padding: 2.2mm 2.4mm; margin: 0 0 3mm; }
-    .solution-card { display: block; break-before: column; break-after: column; }
+    /* 两题一行的分页表格是确定性布局：不做全文多栏平衡，
+       也不建立数百张卡片的单一 inline 排版上下文。 */
+    .grid { width: 100%; border-collapse: separate; border-spacing: 0 3mm; table-layout: fixed; }
+    .grid tr { break-inside: avoid; }
+    .grid td { width: 50%; vertical-align: top; padding: 0; }
+    .grid td:first-child { padding-right: 2mm; }
+    .grid td:last-child { padding-left: 2mm; }
+    .card { break-inside: avoid; display: block; width: 100%; border: .25mm solid #b8b8b8; border-left: 1mm solid #222; border-radius: 1.2mm; padding: 2.2mm 2.4mm; }
     .meta { display: flex; flex-wrap: wrap; gap: 1.2mm; color: #555; font: 7pt "Heiti SC", sans-serif; margin-bottom: 1.4mm; }
     .meta b { color: #111; }
     .question { font-weight: 550; }
     .options { display: flex; flex-wrap: wrap; gap: .7mm 3mm; margin-top: 1.2mm; }
     .option { flex: 1 1 auto; min-width: 18%; }
+    .option-label { margin-right: 1.2mm; font-family: "Heiti SC", sans-serif; font-weight: 700; }
     .original { display: block; max-width: 100%; max-height: 42mm; object-fit: contain; margin: 1.5mm auto; }
     .label { display: inline-block; min-width: 13mm; margin-right: 1mm; font: 700 7.5pt "Heiti SC", sans-serif; }
     .row { border-top: .18mm solid #ddd; margin-top: 1.5mm; padding-top: 1.2mm; }
@@ -31,13 +37,15 @@
   </style>
 </head>
 <body>
-  <header><h1>{{ '纯题重做版' if variant == 'practice' else '完整错题本版' }}</h1><span>{{ questions|length }} 题 · {{ generated_at }}</span></header>
-  <main class="grid">
-  {% for item in questions %}
-    <section class="card{% if item.is_solution %} solution-card{% endif %}">
+  {% if show_header | default(true) %}<header><h1>{{ '纯题重做版' if variant == 'practice' else '完整错题本版' }}</h1><span>{{ total_count | default(questions|length) }} 题 · {{ generated_at }}</span></header>{% endif %}
+  <table class="grid"><tbody>
+  {% for row in questions | batch(2) %}
+    <tr>
+    {% for item in row %}
+    <td><section class="card{% if item.is_solution %} solution-card{% endif %}">
       <div class="meta"><b>{{ item.record.subject }} #{{ item.record.id }} · {{ item.record.created_at[:10] }}</b><span>{{ item.record.chapter }}</span><span>{{ item.record.section }}</span><span>难度 {{ item.record.difficulty }}/5</span></div>
       <div class="question">{{ item.question | safe }}</div>
-      {% if item.options %}<div class="options">{% for option in item.options %}<span class="option">{{ option | safe }}</span>{% endfor %}</div>{% endif %}
+      {% if item.options %}<div class="options">{% for option in item.options %}{% if option %}<span class="option"><b class="option-label">{{ loop.index0 | option_label }}.</b>{{ option | safe }}</span>{% endif %}{% endfor %}</div>{% endif %}
       {% for image in item.images %}<img class="original" src="{{ image }}" alt="原题图">{% endfor %}
       {% if variant == 'practice' %}
         <div class="answer-space"></div>
@@ -48,8 +56,11 @@
         <div class="row"><span class="label">错因</span>{{ item.error_reason | safe if item.error_reason else '待补充' }}</div>
         <div class="knowledge">知识点：{{ item.record.knowledge_points | join(' · ') if item.record.knowledge_points else '待补充' }}</div>
       {% endif %}
-    </section>
+    </section></td>
+    {% endfor %}
+    {% if row | length == 1 %}<td></td>{% endif %}
+    </tr>
   {% endfor %}
-  </main>
+  </tbody></table>
 </body>
 </html>

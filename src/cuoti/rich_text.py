@@ -19,9 +19,49 @@ class RichSegment:
     language: str = ""
 
 
+def _normalize_text_display_math_spacing(value: str) -> str:
+    """Collapse blank lines immediately outside display math delimiters."""
+    matches = list(DISPLAY_MATH_RE.finditer(value))
+    if not matches:
+        return value
+
+    parts: list[str] = []
+    cursor = 0
+    for index, match in enumerate(matches):
+        gap = value[cursor:match.start()]
+        if index:
+            gap = re.sub(r"^[ \t]*\n(?:[ \t]*\n)+", "\n", gap)
+        gap = re.sub(r"\n(?:[ \t]*\n)+[ \t]*$", "\n", gap)
+        parts.extend([gap, match.group(0)])
+        cursor = match.end()
+
+    tail = value[cursor:]
+    tail = re.sub(r"^[ \t]*\n(?:[ \t]*\n)+", "\n", tail)
+    parts.append(tail)
+    return "".join(parts)
+
+
+def normalize_rich_text_spacing(value: str) -> str:
+    """Normalize display-math spacing without touching fenced code blocks.
+
+    Stored Markdown keeps exactly one line break around a standalone formula;
+    decorative empty lines are removed. Code samples remain byte-for-byte
+    equivalent apart from normalizing platform newline characters.
+    """
+    normalized = (value or "").replace("\r\n", "\n").replace("\r", "\n")
+    parts: list[str] = []
+    cursor = 0
+    for match in FENCED_CODE_RE.finditer(normalized):
+        parts.append(_normalize_text_display_math_spacing(normalized[cursor:match.start()]))
+        parts.append(match.group(0))
+        cursor = match.end()
+    parts.append(_normalize_text_display_math_spacing(normalized[cursor:]))
+    return "".join(parts)
+
+
 def split_rich_text(value: str) -> list[RichSegment]:
     """拆分 Markdown 三反引号代码块；其余内容交给公式渲染器。"""
-    normalized = (value or "").replace("\r\n", "\n").replace("\r", "\n")
+    normalized = normalize_rich_text_spacing(value)
     segments: list[RichSegment] = []
     cursor = 0
     for match in FENCED_CODE_RE.finditer(normalized):
@@ -45,11 +85,12 @@ def text_with_display_math_html(value: str) -> str:
     rendered: list[str] = []
     cursor = 0
     for match in DISPLAY_MATH_RE.finditer(value):
-        rendered.append(html.escape(value[cursor:match.start()]).replace("\n", "<br>"))
+        before = value[cursor:match.start()].rstrip("\n")
+        rendered.append(html.escape(before).replace("\n", "<br>"))
         math = html.escape(match.group("math").strip())
         rendered.append(f'<div class="display-math">$${math}$$</div>')
         cursor = match.end()
-    rendered.append(html.escape(value[cursor:]).replace("\n", "<br>"))
+    rendered.append(html.escape(value[cursor:].lstrip("\n")).replace("\n", "<br>"))
     return "".join(rendered)
 
 

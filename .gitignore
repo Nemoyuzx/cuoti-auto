@@ -19,6 +19,17 @@ dist/
 *.sqlite3-shm
 *.sqlite3-wal
 *.db
+*.jpg
+*.jpeg
+*.JPG
+*.JPEG
+*.png
+*.PNG
+*.heic
+*.HEIC
+*.pdf
+*.PDF
+local-data/
 data/inbox/*
 !data/inbox/.gitkeep
 output/*

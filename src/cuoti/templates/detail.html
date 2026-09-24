@@ -22,7 +22,7 @@
       <div class="question-large rich-text math-content">{{ question.question_text | richtext }}</div>
       {% if question.options %}
       <div class="options detail-options math-content">
-        {% for option in question.options %}<span>{{ option | richtext }}</span>{% endfor %}
+        {% for option in question.options %}{% if option %}<span><b class="option-label">{{ loop.index0 | option_label }}.</b>{{ option | richtext }}</span>{% endif %}{% endfor %}
       </div>
       {% endif %}
     </section>
@@ -54,7 +54,8 @@
       <section class="detail-images">
         <div class="detail-subheading"><strong>原题图片</strong><span>仅在需要对照时查看</span></div>
         {% if question.image_paths %}
-          {% for image in question.image_paths %}<img src="/media/{{ question.subject }}/{{ image }}" alt="原题图片 {{ loop.index }}">{% endfor %}
+          {% for image in question.question_image_paths %}<img src="/media/{{ question.subject }}/{{ image }}" alt="题目或作答照片 {{ loop.index }}">{% endfor %}
+          {% for image in question.solution_image_paths %}<img src="/media/{{ question.subject }}/{{ image }}" alt="答案或解析照片 {{ loop.index }}">{% endfor %}
         {% else %}
           <div class="image-empty">这道题没有关联原图</div>
         {% endif %}
@@ -79,16 +80,32 @@
         </div>
         <div class="editor-field">
           <label for="detail-options">选项（每行一个）</label>
-          <textarea id="detail-options" name="options" rows="4" data-preview-source="options-preview" data-preview-kind="options">{{ question.options | join('\n') }}</textarea>
+          <textarea id="detail-options" name="options" rows="4" data-preview-source="options-preview" data-preview-kind="options">{% for option in question.options %}{{ loop.index0 | option_label }}. {{ option }}{% if not loop.last %}{{ '\n' }}{% endif %}{% endfor %}</textarea>
           <section class="live-preview" aria-label="选项实际效果">
             <div class="live-preview-title">实际效果</div>
             <div class="live-preview-content options math-content" data-preview-output="options-preview">
-              {% for option in question.options %}<span>{{ option | richtext }}</span>{% endfor %}
+              {% for option in question.options %}{% if option %}<span><b class="option-label">{{ loop.index0 | option_label }}.</b>{{ option | richtext }}</span>{% endif %}{% endfor %}
             </div>
           </section>
         </div>
-        <label>我的错误答案<textarea name="wrong_answer" rows="3">{{ question.wrong_answer }}</textarea></label>
-        <label>正确答案<textarea name="correct_answer" rows="3">{{ question.correct_answer }}</textarea></label>
+        <div class="two-cols answers-grid">
+          <div class="editor-field wrong-field">
+            <label for="detail-wrong-answer">我的错误答案</label>
+            <textarea id="detail-wrong-answer" name="wrong_answer" rows="3" data-preview-source="wrong-answer-preview">{{ question.wrong_answer }}</textarea>
+            <section class="live-preview" aria-label="错误答案实际效果">
+              <div class="live-preview-title">实际效果</div>
+              <div class="live-preview-content rich-text math-content" data-preview-output="wrong-answer-preview">{{ question.wrong_answer | richtext }}</div>
+            </section>
+          </div>
+          <div class="editor-field correct-field">
+            <label for="detail-correct-answer">正确答案</label>
+            <textarea id="detail-correct-answer" name="correct_answer" rows="3" data-preview-source="correct-answer-preview">{{ question.correct_answer }}</textarea>
+            <section class="live-preview" aria-label="正确答案实际效果">
+              <div class="live-preview-title">实际效果</div>
+              <div class="live-preview-content rich-text math-content" data-preview-output="correct-answer-preview">{{ question.correct_answer | richtext }}</div>
+            </section>
+          </div>
+        </div>
         <div class="editor-field">
           <label for="detail-analysis">解析（代码使用 Markdown 三反引号围栏）</label>
           <textarea id="detail-analysis" name="analysis" rows="12" data-preview-source="analysis-preview">{{ question.analysis }}</textarea>
@@ -99,10 +116,10 @@
         </div>
         <label>错因<textarea name="error_reason" rows="3">{{ question.error_reason }}</textarea></label>
         <label>知识点（逗号分隔）<input name="knowledge_points" value="{{ question.knowledge_points | join(', ') }}"></label>
-        {% if question.image_paths %}
+        {% if question.question_image_paths %}
         <fieldset class="practice-images">
           <legend>纯题 PDF 图片（仅勾选不含答案、批注的题目插图）</legend>
-          {% for image in question.image_paths %}
+          {% for image in question.question_image_paths %}
           <label><input type="checkbox" name="practice_images" value="{{ image }}" {% if image in question.practice_image_paths %}checked{% endif %}>{{ image }}</label>
           {% endfor %}
         </fieldset>

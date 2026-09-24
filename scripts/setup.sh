@@ -22,6 +22,10 @@ npm install
 chmod +x "$PROJECT_DIR/打开错题本.command" "$PROJECT_DIR/scripts/setup.sh"
 ln -sfn "$PROJECT_DIR/打开错题本.command" "$HOME/Desktop/打开错题本.command"
 
+if [ "$(uname -s)" = "Darwin" ]; then
+  "$PROJECT_DIR/.venv/bin/cuoti" service install
+fi
+
 echo
-echo "安装完成。双击桌面的“打开错题本.command”，或运行："
-echo "  $PROJECT_DIR/.venv/bin/cuoti serve"
+echo "安装完成。macOS 会在登录后自动运行并打开错题本。"
+echo "  查看状态：$PROJECT_DIR/.venv/bin/cuoti service status"
