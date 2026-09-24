@@ -15,6 +15,7 @@
 - 原图对照复核、分类建议、公式与代码块渲染
 - 后台生成纯题重做版和完整错题本版 PDF
 - 原始照片与校正后的展示副本分离保存
+- 本地中文线索检索：按题目描述查找候选错题，支持公式相关词与少量 OCR 字符误差
 
 ## 运行要求
 
@@ -92,6 +93,14 @@ export OPENAI_API_KEY="你的 API Key"
 ```bash
 .venv/bin/cuoti import-json tmp/codex_batch.json --source "/绝对路径/原图.jpg"
 ```
+
+### 凭描述找旧题
+
+```bash
+.venv/bin/cuoti search "微分方程 积分 平方" --subject 数学 --limit 8
+```
+
+检索结果按线索匹配程度排序；它帮助定位候选，最终仍需打开原图核对。
 
 ## PDF 导出
 

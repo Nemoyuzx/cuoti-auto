@@ -26,6 +26,11 @@ def build_parser() -> argparse.ArgumentParser:
     imported = sub.add_parser("import-json", help="导入 Codex/人工复核后的结构化 JSON")
     imported.add_argument("json_path", type=Path)
     imported.add_argument("--source", type=Path, required=True)
+    search = sub.add_parser("search", help="按自然语言线索查找本地错题")
+    search.add_argument("query", help="题目描述、公式片段或知识点")
+    search.add_argument("--subject", choices=SUBJECTS, default="")
+    search.add_argument("--limit", type=int, default=8)
+    search.add_argument("--json", action="store_true", help="输出候选题的结构化信息")
     serve = sub.add_parser("serve", help="启动本地错题本网页")
     serve.add_argument("--no-open", action="store_true")
     service = sub.add_parser("service", help="管理 macOS 登录自启与常驻服务")
@@ -77,6 +82,33 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "import-json":
         for subject, question_id in import_json(args.json_path, args.source, settings):
             print(f"已入库：{subject} #{question_id}")
+        return 0
+    if args.command == "search":
+        from .search import search_questions
+
+        if args.limit < 1 or args.limit > 50:
+            print("--limit 必须介于 1 和 50 之间", file=sys.stderr)
+            return 2
+        hits = search_questions(args.query, subject=args.subject, limit=args.limit, settings=settings)
+        if args.json:
+            print(json.dumps([
+                {
+                    "subject": hit.question.subject,
+                    "id": hit.question.id,
+                    "score": hit.score,
+                    "matched_clues": hit.matched_clues,
+                    "chapter": hit.question.chapter,
+                    "question_text": hit.question.question_text,
+                    "markdown_path": str(settings.subject_root(hit.question.subject) / "markdown" / f"{hit.question.id:06d}.md"),
+                }
+                for hit in hits
+            ], ensure_ascii=False, indent=2))
+        else:
+            for hit in hits:
+                summary = " ".join(hit.question.question_text.split())[:140]
+                print(f"{hit.score:5.1f}  {hit.question.subject} #{hit.question.id}  {hit.question.chapter}")
+                print(f"       {summary}")
+                print(f"       线索：{'、'.join(hit.matched_clues)}")
         return 0
     if args.command == "serve":
         if not args.no_open:

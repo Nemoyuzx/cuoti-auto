@@ -27,6 +27,15 @@ cd /path/to/cuoti-auto
 - 误收题可点“删除本题”并二次确认。记录会从 SQLite、Markdown 和后续 PDF 中移除；删除前的 JSON 与派生图片会移到本科 `错题_auto/backups/`，原始照片不受影响。
 - 展示副本在入库时会先应用 EXIF 方向，再用 Tesseract OSD 检测文字方向。原始照片不会被改动；复核页的左右旋转按钮是人工兜底。
 
+## 按描述查找旧题
+
+```bash
+.venv/bin/cuoti search "微分方程 积分 平方" --subject 数学 --limit 8
+.venv/bin/cuoti search "链表删除复杂度" --subject 408 --json
+```
+
+检索在本机执行：jieba 把中文描述切成线索，RapidFuzz 对 OCR 小错误做模糊匹配，常见数学词与 LaTeX 写法会一起参与排序。结果只列候选题，不自动改动原题或复核状态；先打开 Markdown、原图和解析图确认，再向用户报告。当前四科数据库规模小，无需生成向量或运行常驻检索服务。网页筛选框仍用于精确子串筛选。
+
 ## 科目分页与 PDF 导出
 
 - 四科使用独立页面：`/subject/math`、`/subject/english`、`/subject/cs408`、`/subject/politics`。科目通过顶部页签切换，筛选表单不再包含科目下拉框。图片上传统一使用独立的 `/import` 页面，科目页不内嵌上传表单；导入完成后停留在导入页并提供对应科目与复核入口。
